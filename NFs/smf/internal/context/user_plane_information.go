@@ -551,8 +551,8 @@ func (upi *UserPlaneInformation) SelectUPFAndAllocUEIP(selection *UPFSelectionPa
 		return nil, nil
 	}
 
-	DHCPValue, ok := GetFromDHCPMemoryLocal(DHCPKey)
-	if !ok {
+	DHCPValue, ok := GetFromDHCPMemory(DHCPKey)
+	if ok != nil {
 		fmt.Println(ok)
 	}
 
@@ -568,7 +568,6 @@ func (upi *UserPlaneInformation) SelectUPFAndAllocUEIP(selection *UPFSelectionPa
 		for _, pool := range sortedPoolList {
 			logger.CtxLog.Debugf("check start UEIPPool(%+v)", pool.ueSubNet)
 			if DHCPValue.Addr != nil && pool.ueSubNet.Contains(DHCPValue.Addr) {
-				logger.CtxLog.Infof("%v", DHCPValue.Addr)
 				logger.CtxLog.Infof("Selected UPF: %s", upi.GetUPFNameByIp(upf.NodeID.ResolveNodeIdToIp().String()))
 				return upf, DHCPValue.Addr
 			}
@@ -577,9 +576,8 @@ func (upi *UserPlaneInformation) SelectUPFAndAllocUEIP(selection *UPFSelectionPa
 			if addr != nil{
 				key := dhcpValue{
 					Addr: addr,
-					ExpiresAt: time.Now().Add(24 * time.Hour),
 				}
-				SetToDHCPMemoryLocal(DHCPKey, key)
+				SetToDHCPMemory(DHCPKey, key)
 				logger.CtxLog.Infof("Selected UPF: %s", upi.GetUPFNameByIp(upf.NodeID.ResolveNodeIdToIp().String()))
 				return upf, addr
 			}
@@ -622,6 +620,7 @@ func getUEIPPool(upNode *UPNode, selection *UPFSelectionParams) []*UeIPPool {
 }
 
 func (ueIPPool *UeIPPool) allocate() net.IP {
+	RETRY: 
 	allocVal, res := ueIPPool.pool.Allocate()
 	if !res {
 		logger.CtxLog.Warnf("Pool is empty: %+v", ueIPPool.ueSubNet)
@@ -629,6 +628,9 @@ func (ueIPPool *UeIPPool) allocate() net.IP {
 	}
 	buf := make([]byte, 4)
 	binary.BigEndian.PutUint32(buf, uint32(allocVal))
+	if DHCPCheck(buf){
+		goto RETRY
+	}
 	logger.CtxLog.Infof("Allocated UE IP address: %v", net.IPv4(buf[0], buf[1], buf[2], buf[3]))
 	return buf
 }
